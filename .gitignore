@@ -1,8 +1,23 @@
+# Python environments and caches
 .venv/
+venv/
 __pycache__/
-.pytest_cache/
 *.py[cod]
-dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Build and package artifacts
 build/
+dist/
 *.egg-info/
+
+# Local reports and editor/OS files
 filemind-report.json
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local agent investigation logs
+investigation.cany/

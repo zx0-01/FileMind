@@ -1,16 +1,25 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from pathlib import Path
+from collections.abc import Iterator, Callable
+
 import typer
 from rich.console import Console
-from rich.table import Table
 from rich.panel import Panel
-from rich.text import Text
+from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+from rich.table import Table
 
 from . import __version__
 from .core import (
-    apply_organization, find_duplicates, human_size, largest_files,
-    organization_plan, scan_folder, search_files, write_report,
+    apply_organization,
+    find_duplicates_with_progress,
+    human_size,
+    largest_files_with_progress,
+    organization_plan,
+    scan_folder_with_progress,
+    search_files,
+    write_report,
 )
 
 app = typer.Typer(
@@ -36,6 +45,31 @@ def show_header(subtitle: str) -> None:
     ))
 
 
+@contextmanager
+def progress_callback(label: str) -> Iterator[Callable[[int, int, str], None]]:
+    """Provide a Rich progress callback for core operations."""
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("{task.description}"),
+        BarColumn(),
+        TextColumn("{task.completed} checked"),
+        TimeElapsedColumn(),
+        console=console,
+        transient=True,
+    ) as progress:
+        task_id = progress.add_task(label, total=None)
+
+        def update(completed: int, total: int, description: str) -> None:
+            progress.update(
+                task_id,
+                description=description or label,
+                completed=completed,
+                total=total if total > 0 else None,
+            )
+
+        yield update
+
+
 @app.callback()
 def main() -> None:
     """FileMind — understand and organize your files safely."""
@@ -45,7 +79,8 @@ def main() -> None:
 def scan(path: Path = typer.Argument(..., exists=True, file_okay=False, readable=True)) -> None:
     """Show a summary of a folder and its file types."""
     try:
-        data = scan_folder(path)
+        with progress_callback("Scanning files") as update:
+            data = scan_folder_with_progress(path, progress=update)
     except (OSError, ValueError) as exc:
         fail(str(exc))
     show_header("Folder overview")
@@ -71,7 +106,8 @@ def largest(
 ) -> None:
     """Find the largest files in a folder."""
     try:
-        items = largest_files(path, limit)
+        with progress_callback("Finding largest files") as update:
+            items = largest_files_with_progress(path, limit, progress=update)
     except (OSError, ValueError) as exc:
         fail(str(exc))
     show_header(f"Top {limit} largest files")
@@ -86,9 +122,10 @@ def largest(
 
 @app.command()
 def duplicates(path: Path = typer.Argument(..., exists=True, file_okay=False)) -> None:
-    """Find identical files using SHA-256 checksums."""
+    """Find identical files recursively using SHA-256 checksums."""
     try:
-        groups = find_duplicates(path)
+        with progress_callback("Finding duplicate files") as update:
+            groups = find_duplicates_with_progress(path, progress=update)
     except (OSError, ValueError) as exc:
         fail(str(exc))
     show_header("Duplicate finder")
@@ -166,7 +203,8 @@ def report(
 ) -> None:
     """Export a folder scan report to JSON."""
     try:
-        data = scan_folder(path)
+        with progress_callback("Building report") as update:
+            data = scan_folder_with_progress(path, progress=update)
         write_report(data, output)
     except (OSError, ValueError) as exc:
         fail(str(exc))
